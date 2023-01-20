@@ -110,3 +110,25 @@ def read_dataset(topdir, columns=None):
     rows = scan.ingest()
     # That may change scan.columns.
     return rows, scan.columns
+
+def read_subs(root, *subs):
+    """Digest the dataset in each of a given list of subdirs of root.
+
+    First argument is a parent directory; all subsequent arguments
+    must be names, within that directory, of subdirectories, each of
+    which contains a dataset of the kind understood by read_dataset().
+
+    Returns a tuple whose first element is the list of column names,
+    each subsequent element being the data for those columns read from
+    the corresponding entry in subs.
+
+    """
+    subs = iter(subs)
+    sub = join(root, next(subs))
+    rows, columns = read_dataset(sub)
+    data = [rows]
+    for sub in subs:
+        rows, c = read_dataset(join(root, sub), columns)
+        assert c == columns
+        data.append(rows)
+    return columns, *data
