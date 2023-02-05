@@ -41,13 +41,14 @@ class _Rows (object):
                 continue
             try:
                 data = self.__data[bok['time']]
+                # cpu.csv has a cpu-total line before later cpu0... lines
+                # disk.csv puts C: before D:
+                # Keep the first where the rest are duplicated.
+                if any(k in data for k in bok if k != 'time'):
+                    continue
             except KeyError:
                 data = self.__data[bok['time']] = {}
-            # cpu.csv has a cpu-total line before later cpu0... lines
-            # disk.csv puts C: before D:
-            # Keep the first where the rest are duplicated.
-            if not any(k in data for k in bok if k != 'time'):
-                data.update(bok)
+            data.update(bok)
 
     def columns(self):
         if not self.__data:
