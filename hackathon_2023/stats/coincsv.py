@@ -24,7 +24,8 @@ class _Rows (object):
         self.__data = {}
 
     def read(self, stream, stem):
-        heads = tuple(col if col == 'time' else f'{stem}/{col}' for col in stream.readline().split(','))
+        heads = tuple(col if col == 'time' else f'{stem}/{col}'
+                      for col in stream.readline().strip().split(','))
         for line in stream:
             toks, bok = line.split(','), {}
             for k, v in zip(heads, toks):
