@@ -5,10 +5,19 @@ files to form vectors with knowledge of their co-ordinate names.
 """
 from os import walk
 from os.path import join, splitext
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def _parse_time(text):
-    return datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ')
+    when = datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ')
+    assert not when.microsecond
+    # Time-stamps are at 10s intervals but sometimes a file is saved
+    # at a moment slightly off the round number ...
+    sec = when.second % 10
+    if sec > 5:
+        return when + timedelta(seconds = 10 - sec)
+    if sec:
+        return when - timedelta(seconds = sec)
+    return when
 
 class _Rows (object):
     def __init__(self):
@@ -21,6 +30,7 @@ class _Rows (object):
             for k, v in zip(heads, toks):
                 if k == 'time':
                     bok[k] = _parse_time(v.strip())
+                    assert bok[k].second % 10 == 0
                 else:
                     try:
                         bok[k] = float(v.strip())
@@ -75,6 +85,8 @@ class _Scanner (object):
                     data.read(fd, stem)
             if self.columns is None:
                 self.columns = data.columns()
+            if not self.columns:
+                raise ValueError(f'No compatible data in {dirname}')
             rows.extend(data.rows(self.columns))
         return tuple(rows)
 
