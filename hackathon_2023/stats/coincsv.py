@@ -5,22 +5,33 @@ files to form vectors with knowledge of their co-ordinate names.
 """
 from os import walk
 from os.path import join, splitext
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def _parse_time(text):
-    return datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ')
+    when = datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ')
+    assert not when.microsecond
+    # Time-stamps are at 10s intervals but sometimes a file is saved
+    # at a moment slightly off the round number ...
+    sec = when.second % 10
+    if sec > 5:
+        return when + timedelta(seconds = 10 - sec)
+    if sec:
+        return when - timedelta(seconds = sec)
+    return when
 
 class _Rows (object):
     def __init__(self):
         self.__data = {}
 
     def read(self, stream, stem):
-        heads = tuple(col if col == 'time' else f'{stem}/{col}' for col in stream.readline().split(','))
+        heads = tuple(col if col == 'time' else f'{stem}/{col}'
+                      for col in stream.readline().strip().split(','))
         for line in stream:
             toks, bok = line.split(','), {}
             for k, v in zip(heads, toks):
                 if k == 'time':
                     bok[k] = _parse_time(v.strip())
+                    assert bok[k].second % 10 == 0
                 else:
                     try:
                         bok[k] = float(v.strip())
@@ -30,13 +41,14 @@ class _Rows (object):
                 continue
             try:
                 data = self.__data[bok['time']]
+                # cpu.csv has a cpu-total line before later cpu0... lines
+                # disk.csv puts C: before D:
+                # Keep the first where the rest are duplicated.
+                if any(k in data for k in bok if k != 'time'):
+                    continue
             except KeyError:
                 data = self.__data[bok['time']] = {}
-            # cpu.csv has a cpu-total line before later cpu0... lines
-            # disk.csv puts C: before D:
-            # Keep the first where the rest are duplicated.
-            if not any(k in data for k in bok if k != 'time'):
-                data.update(bok)
+            data.update(bok)
 
     def columns(self):
         if not self.__data:
@@ -75,6 +87,8 @@ class _Scanner (object):
                     data.read(fd, stem)
             if self.columns is None:
                 self.columns = data.columns()
+            if not self.columns:
+                raise ValueError(f'No compatible data in {dirname}')
             rows.extend(data.rows(self.columns))
         return tuple(rows)
 
