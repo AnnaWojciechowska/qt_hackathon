@@ -32,6 +32,17 @@ class Space (object):
             assert all(len(x) == len(components) for x in coords)
         self.__coords = coords
 
+    def entry(self, vector, axis):
+        """Extract an entry from a vector by name.
+
+        Takes a vector in the underlying space's co-ordinates and the
+        name of one of those co-ordinates; returns the vector's entry
+        corresponding to that co-ordinate.  Raises ValueError if the
+        given name does not appear in self's list of co-ordinate
+        names.
+        """
+        return vector[self.__axes.index(axis)]
+
     def coordinates(self, vector):
         """Map from underlying space vector to subspace co-ordinates.
         """
@@ -60,9 +71,9 @@ class Space (object):
             elif scale == 1:
                 text += f'{space}{plus}{name}'
             elif scale < 0:
-                text += f'{space}{scale} * {name}'
+                text += f'{space}{scale:g} * {name}'
             else:
-                text += f'{space}{plus}{scale} * {name}'
+                text += f'{space}{plus}{scale:g} * {name}'
             plus, space = '+', ' '
         return text
 
@@ -106,7 +117,7 @@ class Space (object):
                             for s, u in zip(scales, units) if s is None)
         return res
 
-    def diagonalise(self, form):
+    def __diagonalise(self, form):
         """Return a (sub)space based on self that makes form diagonal.
 
         Presumes that form is a sum of tensor-squares of vectors,
@@ -121,21 +132,33 @@ class Space (object):
         assert min(scale) >= -1e-12, (scale, form)
         res = Space(self.__axes, (self.composed(b / s**.5)
                                   for s, b in zip(scale, basis) if s > 1e-12))
-        res.ignored = tuple(self.__describe(self.__as_direction(self.composed(b)))
-                            for s, b in zip(scale, basis) if s <= 1e-12)
+        return res, tuple(self.__as_direction(self.composed(b))
+                          for s, b in zip(scale, basis) if s <= 1e-12)
+
+    def parameterise(self, data):
+        """Find the right parameters to describe the given data.
+
+        The data are given in the co-ordinates of the underlying space.
+        """
+        mean, vary = _mean_vary(data)
+        if self.__coords is not None:
+            vary = self.__coords.dot(vary).dot(self.__coords.T)
+        res, ignored = self.__diagonalise(vary)
+        res.ignored = tuple(f'{self.__describe(b)} = {_simplify(b.dot(mean)):g}'
+                            for b in ignored)
         return res
 
-def _simplify(scalar):
+def _simplify(scalar, tol=1e-8):
     if abs(scalar) < 1e-12:
         return 0
     try:
-        if abs(scalar.imag) < 1e-12:
+        if abs(scalar.imag) < tol:
             scalar = scalar.real
     except AttributeError:
         pass
 
     whole = _to_nearest_int(scalar)
-    if abs(whole - scalar) < 1e-12:
+    if abs(whole - scalar) < tol:
         return whole
 
     return scalar
@@ -221,22 +244,15 @@ def contrast(pairdir):
     if rescaled.ignored:
         print(f'Ignoring constant columns:\n\t{kernel(rescaled)}\n')
 
-    try:
-        diagonal = rescaled.diagonalise(_mean_vary(rescaled.coordinates(r)
-                                                   for r in gather)[1])
-    except AssertionError as what:
-        what.args += (rescaled, gather)
-        raise
-    if diagonal.ignored:
-        print(f'Found {lindep(diagonal)}:\n\t{kernel(diagonal)}')
+    shared = rescaled.parameterise(gather)
+    if shared.ignored:
+        print(f'Found {lindep(shared)}:\n\t{kernel(shared)}')
 
-    passive, flawed = (diagonal.diagonalise(
-            _mean_vary(diagonal.coordinates(r) for r in rs)[1])
-                       for rs in (passed, failed))
+    passive, flawed = (shared.parameterise(rs) for rs in (passed, failed))
     if passive.ignored:
-        print(f'Found pass-only lindep(passive):\n\t{kernel(passive)}')
+        print(f'Found pass-only {lindep(passive)}:\n\t{kernel(passive)}')
     if flawed.ignored:
-        print(f'Found fail-only lindep(flawed):\n\t{kernel(flawed)}')
+        print(f'Found fail-only {lindep(flawed)}:\n\t{kernel(flawed)}')
 
     # ...
-    return passive, flawed
+    return (passed, passive), (failed, flawed)
